@@ -1,0 +1,1 @@
+CREATE TABLE file_tag (f TEXT NOT NULL, t TEXT NOT NULL);
