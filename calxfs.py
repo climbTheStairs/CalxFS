@@ -77,14 +77,15 @@ class CalxFS(mfusepy.Operations):
                 partags[-1] += t
 
         # TODO: DRY
-        # TODO: hide implieed chitag
+        # TODO: hide implied chitag
+
         if partags:
             q = "SELECT DISTINCT ft.t AS chitag FROM file_tag_w_impl ft\n"
             for i in range(len(partags[:-1])):
                 q += f"JOIN file_tag_w_impl ft{i} ON ft.f = ft{i}.f AND ft{i}.t = ? AND chitag != ft{i}.t\n"
             q += "WHERE chitag LIKE ?\n"
             q += "ORDER BY chitag\n"
-            s = partags[-1].replace("'", "''") + "=%"
+            s = partags[-1] + "=%"
             for e, in cursor.execute(q, partags[:-1] + [s]):
                 yield e[e.index("="):]
 
