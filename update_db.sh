@@ -16,4 +16,6 @@ readonly calx2tsv='FILENAME ~ /:/ {
 	-exec awk -vOFS="$HT" "$calx2tsv" {} +) |
 sqlite3 -tabs db.sqlite \
 	"DELETE FROM file_tag;" \
-	".import '| cat -' file_tag"
+	".import '| cat -' file_tag" \
+	"DELETE FROM impl;" \
+	".import impl.tsv impl"
