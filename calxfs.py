@@ -41,6 +41,14 @@ def get_files(fname):
         if not path.endswith(".calx") or fname.endswith(".calx")
     ]
 
+def chitags_query(partags, filt):
+    q = "SELECT DISTINCT ft.t AS chitag FROM file_tag_w_impl ft\n"
+    for i in range(len(partags)):
+        q += f"JOIN file_tag_w_impl ft{i} ON ft.f = ft{i}.f AND ft{i}.t = ? AND chitag != ft{i}.t\n"
+    q += f"WHERE {filt}\n"
+    q += "ORDER BY chitag || '<'\n" # append '<' to sort "a" imm before "a="
+    return q
+
 class CalxFS(mfusepy.Operations):
     def __init__(self):
         self.use_ns = True # make warning go away
@@ -79,22 +87,13 @@ class CalxFS(mfusepy.Operations):
         # TODO: DRY
         # TODO: hide implied chitag
 
-        if partags:
-            q = "SELECT DISTINCT ft.t AS chitag FROM file_tag_w_impl ft\n"
-            for i in range(len(partags[:-1])):
-                q += f"JOIN file_tag_w_impl ft{i} ON ft.f = ft{i}.f AND ft{i}.t = ? AND chitag != ft{i}.t\n"
-            q += "WHERE chitag LIKE ?\n"
-            q += "ORDER BY chitag\n"
+        if partags and "=" not in partags[-1]:
+            q = chitags_query(partags[:-1], "chitag LIKE ?")
             s = partags[-1] + "=%"
             for e, in cursor.execute(q, partags[:-1] + [s]):
                 yield e[e.index("="):]
 
-        q = "SELECT DISTINCT ft.t AS chitag FROM file_tag_w_impl ft\n"
-        for i in range(len(partags)):
-            q += f"JOIN file_tag_w_impl ft{i} ON ft.f = ft{i}.f AND ft{i}.t = ? AND chitag != ft{i}.t\n"
-        q += "WHERE chitag NOT LIKE '.%'\n"
-        q += "ORDER BY chitag || '<'\n" # append '<' to sort "a" imm before "a="
-        #print("[DEBUG] readdir", path, q, partags, file=sys.stderr)
+        q = chitags_query(partags, "chitag NOT LIKE '.%'")
         prev = ""
         for e, in cursor.execute(q, partags):
             if "=" in e:
