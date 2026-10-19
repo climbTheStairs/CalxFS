@@ -48,7 +48,7 @@ class CalxFS(mfusepy.Operations):
     def getattr(self, path, fh=None):
         path_s = path[1:].split("/")
         basename = path_s[-1]
-        if basename == "" or basename[0] in ".#":
+        if basename == "" or basename[0] in "#=":
             return attr_d()
         files = get_files(basename)
         if len(files) == 1:
@@ -62,23 +62,45 @@ class CalxFS(mfusepy.Operations):
         yield "."
         yield ".."
 
-        if basename and basename[0] != "#":
+        # non-tag dir; for when ${f%.calx}* yields mult
+        if basename and basename[0] not in "#=":
             for f in get_files(basename):
                 yield f
             return
 
         cursor = conn.cursor()
-        partags = [t[1:] for t in path_s if t and t[0] in ".#"]
+        partags = []
+        for t in path_s:
+            if t.startswith("#"):
+                partags.append(t[1:])
+            elif t.startswith("="):
+                partags[-1] += t
+
+        # TODO: DRY
+        if partags:
+            q = "SELECT DISTINCT ft.t AS chitag FROM file_tag ft\n"
+            for i in range(len(partags[:-1])):
+                q += f"JOIN file_tag ft{i} ON ft.f = ft{i}.f AND ft{i}.t = ? AND chitag != ft{i}.t\n"
+            q += "WHERE chitag LIKE ?\n"
+            q += "ORDER BY chitag\n"
+            s = partags[-1].replace("'", "''") + "=%"
+            for e, in cursor.execute(q, partags[:-1] + [s]):
+                yield e[e.index("="):]
 
         q = "SELECT DISTINCT ft.t AS chitag FROM file_tag ft\n"
         for i in range(len(partags)):
             q += f"JOIN file_tag ft{i} ON ft.f = ft{i}.f AND ft{i}.t = ? AND chitag != ft{i}.t\n"
-        #q += "WHERE chitag NOT LIKE '.%'\n"
+        q += "WHERE chitag NOT LIKE '.%'\n"
+        q += "ORDER BY chitag || '<'\n" # append '<' to sort "a" imm before "a="
         #print("[DEBUG] readdir", path, q, partags, file=sys.stderr)
+        prev = ""
         for e, in cursor.execute(q, partags):
-            if e.startswith("."):
-                continue #yield e.replace("/", ":")
+            if "=" in e:
+                e = e[:e.index("=")]
+            if e == prev:
+                continue
             yield "#" + e
+            prev = e
 
         q = "SELECT DISTINCT ft.f FROM file_tag ft\n"
         for i in range(len(partags) - 1):
