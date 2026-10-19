@@ -34,9 +34,10 @@ def attr_l(sz):
     return a
 
 def get_files(fname):
+    globstr = glob.escape(DIR_BASE + fname.replace(":", "/")) + "*"
     return [
         path[len(DIR_BASE):].replace("/", ":")
-        for path in glob.glob(DIR_BASE + fname.replace(":", "/") + "*")
+        for path in glob.glob(globstr)
         if not path.endswith(".calx") or fname.endswith(".calx")
     ]
 
@@ -51,7 +52,7 @@ class CalxFS(mfusepy.Operations):
             return attr_d()
         files = get_files(basename)
         if len(files) == 1:
-            return attr_l(len(DIR_BASE + files[0]))
+            return attr_l(len((DIR_BASE + files[0]).encode()))
         return attr_d()
 
     def readdir(self, path, _fh):
