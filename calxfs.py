@@ -34,12 +34,12 @@ def attr_l(sz):
     return a
 
 def get_files(fname):
-    globstr = glob.escape(DIR_BASE + fname.replace(":", "/")) + "*"
+    path_dest = DIR_BASE + fname.replace(":", "/")
     return [
         path[len(DIR_BASE):].replace("/", ":")
-        for path in glob.glob(globstr)
+        for path in glob.glob(glob.escape(path_dest) + "*")
         if not path.endswith(".calx") or fname.endswith(".calx")
-    ]
+    ] or [path_dest] # give them a broken symlink
 
 def chitags_query(partags, filt):
     q = "SELECT DISTINCT ft.t AS chitag FROM file_tag_w_impl ft\n"
