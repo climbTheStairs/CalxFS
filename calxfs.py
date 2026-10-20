@@ -58,6 +58,8 @@ class CalxFS(mfusepy.Operations):
         basename = path_s[-1]
         if basename == "" or basename[0] in "#=":
             return attr_d()
+        if len(path_s) > 1 and path_s[-2][0] not in "#=": # if in virtual dir
+            return attr_l(len((DIR_BASE + basename).encode()))
         files = get_files(basename)
         if len(files) == 1:
             return attr_l(len((DIR_BASE + files[0]).encode()))
