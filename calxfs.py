@@ -5,8 +5,8 @@ import mfusepy
 # TODO: don't forget to conn.commit() af write
 
 MY_ID = 1000
-DIR_MOUNTPOINT = "/home/stairs/calxfs/"
-DIR_BASE = "/home/stairs/dl/"
+DIR_MOUNTPOINT = "/mnt/calxfs/"
+DIR_BASE = "/home/stairs/"
 DEFAULT_ATTR = {
     "st_nlink": 1,
     "st_size": 0,

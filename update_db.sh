@@ -9,10 +9,9 @@ readonly calx2tsv='FILENAME ~ /:/ {
 	exit 1
 }
 {
-	print substr(FILENAME, 3, length(FILENAME)-7), $0
-	# s[3:-7] == s[len("./")+1:len("./" ".calx")]
+	print substr(FILENAME, 1, length(FILENAME)-length(".calx")), $0
 }'
-(cd ~/dl && find -L ./ -name \*.calx \
+(cd && find -H D ?.* dl tp -name \*.calx \
 	-exec awk -vOFS="$HT" "$calx2tsv" {} +) |
 sqlite3 -tabs db.sqlite \
 	"DELETE FROM file_tag;" \
