@@ -2,8 +2,6 @@
 import glob, sqlite3, stat, sys
 import mfusepy
 
-# TODO: don't forget to conn.commit() af write
-
 MY_ID = 1000
 DIR_MOUNTPOINT = "/mnt/calxfs/"
 DIR_BASE = "/home/stairs/"
@@ -46,7 +44,7 @@ def chitags_query(partags, filt):
     for i in range(len(partags)):
         q += f"JOIN file_tag_w_impl ft{i} ON ft.f = ft{i}.f AND ft{i}.t = ? AND chitag != ft{i}.t\n"
     q += f"WHERE {filt}\n"
-    q += "ORDER BY chitag || '<'\n" # append '<' to sort "a" imm before "a="
+    q += "ORDER BY chitag || '<'\n" # appending '<' sorts "a" imm before "a="
     return q
 
 class CalxFS(mfusepy.Operations):
@@ -66,13 +64,12 @@ class CalxFS(mfusepy.Operations):
         return attr_d()
 
     def readdir(self, path, _fh):
-        #print("[DEBUG] readdir", path, file=sys.stderr)
         path_s = path[1:].split("/")
         basename = path_s[-1]
         yield "."
         yield ".."
 
-        # non-tag dir; for when ${f%.calx}* yields mult
+        # virtual dir, created when get_files() yields mult
         if basename and basename[0] not in "#=":
             for f in get_files(basename):
                 yield f
@@ -85,9 +82,6 @@ class CalxFS(mfusepy.Operations):
                 partags.append(t[1:])
             elif t.startswith("="):
                 partags[-1] += t
-
-        # TODO: DRY
-        # TODO: hide implied chitag
 
         if partags and "=" not in partags[-1]:
             q = chitags_query(partags[:-1], "chitag LIKE ?")
@@ -110,7 +104,6 @@ class CalxFS(mfusepy.Operations):
             q += f"JOIN file_tag_w_impl ft{i} ON ft.f = ft{i}.f AND ft{i}.t = ?\n"
         if len(partags):
             q += "WHERE ft.t = ?\n"
-        #print("[DEBUG] readdir", path, q, partags, file=sys.stderr)
         for e, in cursor.execute(q, partags):
             yield e.replace("/", ":")
 

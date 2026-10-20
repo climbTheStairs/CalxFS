@@ -1,0 +1,10 @@
+- DRY code in readdir()
+- hide implied chitag
+- return `#a=b` instead of `#a/=b` when E only 1 `b`
+- ls negation of a tag
+- view tags o file
+	- view hidden tags o file
+- wr (don't forget conn.commit() af write db):
+	- rename dir to rename tag
+	- rm file to untag
+	- log changes
