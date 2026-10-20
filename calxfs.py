@@ -83,17 +83,21 @@ class CalxFS(mfusepy.Operations):
             elif t.startswith("="):
                 partags[-1] += t
 
-        if partags and "=" not in partags[-1]:
+        if partags:
             q = chitags_query(partags[:-1], "chitag LIKE ? ESCAPE '\\'")
             s = partags[-1].replace("%", "\\%").replace("_", "\\_") + "=%"
+            prev = ""
             for e, in cursor.execute(q, partags[:-1] + [s]):
-                yield e[e.index("="):]
+                e = e[len(partags[-1] + "="):].split("=")[0]
+                if e == prev:
+                    continue
+                yield "=" + e
+                prev = e
 
         q = chitags_query(partags, "chitag NOT LIKE '.%'")
         prev = ""
         for e, in cursor.execute(q, partags):
-            if "=" in e:
-                e = e[:e.index("=")]
+            e = e.split("=")[0]
             if e == prev:
                 continue
             yield "#" + e
