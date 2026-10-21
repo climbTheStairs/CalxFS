@@ -2,14 +2,13 @@
 import errno, glob, os, re, sqlite3, stat, sys
 import mfusepy as fuse
 
-MY_ID = 1000
 DIR_MOUNTPOINT = "/mnt/calxfs/"
-DIR_BASE = "/home/stairs/"
+DIR_BASE = os.path.expanduser("~") + "/"
 DEFAULT_ATTR = {
     "st_nlink": 1,
     "st_size": 0,
-    "st_uid": MY_ID,
-    "st_gid": MY_ID,
+    "st_uid": os.getuid(),
+    "st_gid": os.getgid(),
 }
 
 def main():
