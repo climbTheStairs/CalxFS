@@ -63,7 +63,7 @@ def get_tags_in(partags, filt="1", args=[]):
     q = "SELECT DISTINCT ft.t AS chitag FROM file_tag_w_impl ft\n"
     for i in range(len(partags)):
         q += f"JOIN file_tag_w_impl ft{i} ON ft.f = ft{i}.f AND ft{i}.t = ? AND chitag != ft{i}.t\n"
-    q += f"WHERE {filt}\n"
+    q += f"WHERE chitag NOT LIKE '.%' AND {filt}\n"
     q += "ORDER BY chitag || '<'\n" # appending '<' sorts "a" imm before "a="
     return conn.cursor().execute(q, partags + args)
 
@@ -87,7 +87,7 @@ class CalxFS(fuse.Operations):
         if is_tag_dir:
             tag_exists = get_files_in(tags).fetchone() or get_tagvals_in(tags).fetchone()
             if not tag_exists:
-                print(f"ENOENT: empty {tags=}", file=sys.stderr)
+                print(f"ENOENT: tags {tags} is empty", file=sys.stderr)
                 raise fuse.FuseOSError(errno.ENOENT)
             return attr_d()
 
@@ -100,11 +100,11 @@ class CalxFS(fuse.Operations):
             virtdir_in_tags = get_files_in(tags,
                 filt="ft.f = ?",
                 args=[path_s[-2].replace(":", "/")]).fetchone()
-            if not virtdir_in_tags or not os.path.exists(f):
-                if virtdir_in_tags:
-                    print(f"ENOENT: virtdir {path_s[-2]=} !in tags", file=sys.stderr)
-                else:
-                    print(f"ENOENT: !E {f=}", file=sys.stderr)
+            if not virtdir_in_tags:
+                print(f"ENOENT: virtdir {path_s[-2]=} !in tags", file=sys.stderr)
+                raise fuse.FuseOSError(errno.ENOENT)
+            if not os.path.exists(f):
+                print(f"ENOENT: !E {f=}", file=sys.stderr)
                 raise fuse.FuseOSError(errno.ENOENT)
             return attr_l(len(f.encode()))
 
@@ -141,7 +141,7 @@ class CalxFS(fuse.Operations):
             yield e
             prev = e
 
-        for e, in get_tags_in(tags, "chitag NOT LIKE '.%'"):
+        for e, in get_tags_in(tags):
             e = "#" + e.split("=")[0]
             if e == prev:
                 continue

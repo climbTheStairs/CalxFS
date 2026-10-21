@@ -1,3 +1,5 @@
+- ls/lf root v slow
+- implement impl in update_db.sh ins o py?
 - hide implied chitag
 - return `#a=b` instead of `#a/=b` when E only 1 `b`
 - ls negation of a tag; ls untagged
