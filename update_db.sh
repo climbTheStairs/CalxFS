@@ -21,16 +21,16 @@ function get_ext(fname,   a) {
 	sub("^[^.]*$",	"_none",	fname)
 	return a[split(fname, a, ".")]
 }
+index(FILENAME, "#") == 1 {
+	print "fname " FILENAME " illegal, cannot start with char '\'#\''" | "cat >&2"
+	exit 1
+}
 index(FILENAME, ":") {
 	print "fname " FILENAME " contains illegal char '\':\''" | "cat >&2"
 	exit 1
 }
 index(FILENAME, "\n") {
 	print "fname " FILENAME " contains illegal char '\'\\n\''" | "cat >&2"
-	exit 1
-}
-/^=/ {
-	print "file " FILENAME " contains illegal tag starting with \"=\"" | "cat >&2"
 	exit 1
 }
 FNR == 1 {
@@ -44,7 +44,7 @@ FNR == 1 {
 }'
 (
 	cd &&
-	find -H -- D ?.* dl tp doc -name \*.calx \
+	find -H -- ? ?.* dl tp doc -name \*.calx \
 		-exec awk -vOFS="$HT" -- "$calx2tsv" {} + &&
 	awk -vOFS="$HT" -- "$calx2tsv" src/*.calx src/[A-Z_]*/*.calx
 ) | sqlite3 -tabs db.sqlite \
