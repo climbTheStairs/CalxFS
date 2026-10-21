@@ -60,17 +60,17 @@ def get_files_in(partags, filt="1", args=[]):
     return conn.cursor().execute(q, partags + args)
 
 def get_tags_in(partags, filt="1", args=[]):
-    q = "SELECT DISTINCT ft.t AS chitag FROM file_tag_w_impl ft\n"
+    q = "SELECT DISTINCT ft.t FROM file_tag_w_impl ft\n"
     for i in range(len(partags)):
-        q += f"JOIN file_tag_w_impl ft{i} ON ft.f = ft{i}.f AND ft{i}.t = ? AND chitag != ft{i}.t\n"
-    q += f"WHERE chitag NOT LIKE '.%' AND {filt}\n"
-    q += "ORDER BY chitag || '<'\n" # appending '<' sorts "a" imm before "a="
+        q += f"JOIN file_tag_w_impl ft{i} ON ft.f = ft{i}.f AND ft{i}.t = ? AND ft.t != ft{i}.t\n"
+    q += f"WHERE ft.t NOT LIKE '.%' AND {filt}\n"
+    q += "ORDER BY ft.t || '<'\n" # appending '<' sorts "a" imm before "a="
     return conn.cursor().execute(q, partags + args)
 
 def get_tagvals_in(tags):
     *partags, tagkey = tags
     return get_tags_in(partags,
-        filt="chitag LIKE ? ESCAPE '\\'",
+        filt="ft.t LIKE ? ESCAPE '\\'",
         args=[esc_sql_like(tagkey) + "=%"])
 
 class CalxFS(fuse.Operations):
