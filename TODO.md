@@ -1,10 +1,9 @@
-- DRY code in readdir()
 - hide implied chitag
 - return `#a=b` instead of `#a/=b` when E only 1 `b`
 - ls negation of a tag; ls untagged
 - view tags o file, incl hidden
 - get lf t hide .calx & keep tgt
-- ls all tagvals at `#a=*`
+- ls files in any tagval of `#a` at `#a=*`
 - wr (don't forget conn.commit() af write db):
 	- rename tag dir to rename tag (entire tag or only o files matching partags?)
 	- rename file wi dir t rename file

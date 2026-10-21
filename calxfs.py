@@ -1,6 +1,6 @@
 #!/bin/env python3
-import glob, sqlite3, stat, sys
-import mfusepy
+import errno, glob, os, re, sqlite3, stat, sys
+import mfusepy as fuse
 
 MY_ID = 1000
 DIR_MOUNTPOINT = "/mnt/calxfs/"
@@ -16,105 +16,146 @@ def main():
     global conn
     conn = sqlite3.connect("db.sqlite")
     fg = (sys.argv[1] != "bg") if len(sys.argv) > 1 else True
-    mfusepy.FUSE(CalxFS(), DIR_MOUNTPOINT, foreground=fg, nothreads=True)
+    fuse.FUSE(CalxFS(), DIR_MOUNTPOINT, foreground=fg, nothreads=True)
     conn.close()
 
+PAT_WILDCARDS = re.compile(r"([%_\\])")
+def esc_sql_like(s):
+    return PAT_WILDCARDS.sub(r"\\\1", s)
+
 def attr_d():
-    a = DEFAULT_ATTR.copy()
-    a["st_mode"] = stat.S_IFDIR | 0o755
-    a["st_nlink"] = 2
-    return a
+    return DEFAULT_ATTR | {
+        "st_mode": stat.S_IFDIR | 0o755,
+        "st_nlink": 2,
+    }
 
 def attr_l(sz):
-    a = DEFAULT_ATTR.copy()
-    a["st_mode"] = stat.S_IFLNK | 0o777
-    a["st_size"] = sz
-    return a
+    return DEFAULT_ATTR | {
+        "st_mode": stat.S_IFLNK | 0o777,
+        "st_size": sz,
+    }
 
-def get_files(fname):
+def path2tags(path_s):
+    tags = []
+    for t in path_s:
+        if t.startswith("#"):
+            tags.append(t[1:])
+        elif t.startswith("="):
+            tags[-1] += t
+    return tags
+
+def get_symlink_names(fname):
     path_dest = DIR_BASE + fname.replace(":", "/")
     return [
         path[len(DIR_BASE):].replace("/", ":")
         for path in glob.glob(glob.escape(path_dest) + "*")
         if not path.endswith(".calx") or fname.endswith(".calx")
-    ] or [path_dest] # give them a broken symlink
+    ] or [fname] # give them a broken symlink
 
-def chitags_query(partags, filt):
+def get_files_in(partags, filt="1", args=[]):
+    q = "SELECT DISTINCT ft.f FROM file_tag_w_impl ft\n"
+    for i in range(len(partags)):
+        q += f"JOIN file_tag_w_impl ft{i} ON ft.f = ft{i}.f AND ft{i}.t = ?\n"
+    q += f"WHERE {filt}\n"
+    q += "ORDER BY ft.f\n"
+    return conn.cursor().execute(q, partags + args)
+
+def get_tags_in(partags, filt="1", args=[]):
     q = "SELECT DISTINCT ft.t AS chitag FROM file_tag_w_impl ft\n"
     for i in range(len(partags)):
         q += f"JOIN file_tag_w_impl ft{i} ON ft.f = ft{i}.f AND ft{i}.t = ? AND chitag != ft{i}.t\n"
     q += f"WHERE {filt}\n"
     q += "ORDER BY chitag || '<'\n" # appending '<' sorts "a" imm before "a="
-    return q
+    return conn.cursor().execute(q, partags + args)
 
-class CalxFS(mfusepy.Operations):
+def get_tagvals_in(tags):
+    *partags, tagkey = tags
+    return get_tags_in(partags,
+        filt="chitag LIKE ? ESCAPE '\\'",
+        args=[esc_sql_like(tagkey) + "=%"])
+
+class CalxFS(fuse.Operations):
     def __init__(self):
         self.use_ns = True # make warning go away
 
     def getattr(self, path, fh=None):
         path_s = path[1:].split("/")
         basename = path_s[-1]
-        if basename == "" or basename[0] in "#=":
+        tags = path2tags(path_s)
+        f = DIR_BASE + basename.replace(":", "/")
+
+        is_tag_dir = path == "/" or basename[0] in "#="
+        if is_tag_dir:
+            tag_exists = get_files_in(tags).fetchone() or get_tagvals_in(tags).fetchone()
+            if not tag_exists:
+                print(f"ENOENT: empty {tags=}", file=sys.stderr)
+                raise fuse.FuseOSError(errno.ENOENT)
             return attr_d()
-        if len(path_s) > 1 and path_s[-2][0] not in "#=": # if in virtual dir
-            return attr_l(len((DIR_BASE + basename).encode()))
-        files = get_files(basename)
-        if len(files) == 1:
-            return attr_l(len((DIR_BASE + files[0]).encode()))
-        return attr_d()
+
+        # secret hidden symlink to conveniently edit .calx files
+        if basename.endswith(".calx"):
+            return attr_l(len(f.encode()))
+
+        is_in_virtdir = len(path_s) > 1 and path_s[-2][0] not in "#="
+        if is_in_virtdir:
+            virtdir_in_tags = get_files_in(tags,
+                filt="ft.f = ?",
+                args=[path_s[-2].replace(":", "/")]).fetchone()
+            if not virtdir_in_tags or not os.path.exists(f):
+                if virtdir_in_tags:
+                    print(f"ENOENT: virtdir {path_s[-2]=} !in tags", file=sys.stderr)
+                else:
+                    print(f"ENOENT: !E {f=}", file=sys.stderr)
+                raise fuse.FuseOSError(errno.ENOENT)
+            return attr_l(len(f.encode()))
+
+        file_in_tags = get_files_in(tags,
+            filt="ft.f = ?",
+            args=[basename.replace(":", "/")]).fetchone()
+        if not file_in_tags:
+            print(f"ENOENT: file {basename=} !in tags", file=sys.stderr)
+            raise fuse.FuseOSError(errno.ENOENT)
+
+        symlink_names = get_symlink_names(basename)
+        if len(symlink_names) > 1:
+            return attr_d() # this is a virtdir
+        return attr_l(len((DIR_BASE + symlink_names[0]).encode()))
 
     def readdir(self, path, _fh):
         path_s = path[1:].split("/")
         basename = path_s[-1]
+        tags = path2tags(path_s)
+        prev = ""
+
         yield "."
         yield ".."
 
-        # virtual dir, created when get_files() yields mult
-        if basename and basename[0] not in "#=":
-            for f in get_files(basename):
-                yield f
+        is_virtdir = basename and basename[0] not in "#="
+        if is_virtdir:
+            yield from get_symlink_names(basename)
             return
 
-        cursor = conn.cursor()
-        partags = []
-        for t in path_s:
-            if t.startswith("#"):
-                partags.append(t[1:])
-            elif t.startswith("="):
-                partags[-1] += t
-
-        if partags:
-            q = chitags_query(partags[:-1], "chitag LIKE ? ESCAPE '\\'")
-            s = partags[-1].replace("%", "\\%").replace("_", "\\_") + "=%"
-            prev = ""
-            for e, in cursor.execute(q, partags[:-1] + [s]):
-                e = e[len(partags[-1] + "="):].split("=")[0]
-                if e == prev:
-                    continue
-                yield "=" + e
-                prev = e
-
-        q = chitags_query(partags, "chitag NOT LIKE '.%'")
-        prev = ""
-        for e, in cursor.execute(q, partags):
-            e = e.split("=")[0]
+        for e, in tags and get_tagvals_in(tags):
+            e = "=" + e[len(tags[-1] + "="):].split("=")[0]
             if e == prev:
                 continue
-            yield "#" + e
+            yield e
             prev = e
 
-        q = "SELECT DISTINCT ft.f FROM file_tag_w_impl ft\n"
-        for i in range(len(partags) - 1):
-            q += f"JOIN file_tag_w_impl ft{i} ON ft.f = ft{i}.f AND ft{i}.t = ?\n"
-        if len(partags):
-            q += "WHERE ft.t = ?\n"
-        for e, in cursor.execute(q, partags):
+        for e, in get_tags_in(tags, "chitag NOT LIKE '.%'"):
+            e = "#" + e.split("=")[0]
+            if e == prev:
+                continue
+            yield e
+            prev = e
+
+        for e, in get_files_in(tags):
             yield e.replace("/", ":")
 
     def readlink(self, path):
         path_s = path[1:].split("/")
         basename = path_s[-1]
-        return DIR_BASE + get_files(basename)[0].replace(":", "/")
+        return DIR_BASE + get_symlink_names(basename)[0].replace(":", "/")
 
 if __name__ == "__main__":
     main()
