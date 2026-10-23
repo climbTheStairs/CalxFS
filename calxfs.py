@@ -76,6 +76,24 @@ def get_tagvals_in(tags):
         filt="ft.t LIKE ? ESCAPE '\\'",
         args=[esc_sql_like(tagkey) + "=%"])
 
+def same_prefix_len(a, b):
+    return ([x == y for x, y in zip(a, b)] + [False]).index(False)
+
+def proc_tags(tags):
+    try:
+        prev = next(tags).split("=")
+    except StopIteration:
+        return
+    for t in tags:
+        t = t.split("=")
+        i = same_prefix_len(prev, t)
+        if i:
+            prev = t[:i]
+            continue
+        yield "=".join(prev)
+        prev = t
+    yield "=".join(prev)
+
 class CalxFS(fuse.Operations):
     def __init__(self):
         self.use_ns = True # make warning go away
@@ -134,7 +152,6 @@ class CalxFS(fuse.Operations):
         path_s = path[1:].split("/")
         basename = path_s[-1]
         tags = path2tags(path_s)
-        prev = ""
 
         yield "."
         yield ".."
@@ -144,22 +161,14 @@ class CalxFS(fuse.Operations):
             yield from get_symlink_names(basename)
             return
 
-        for e, in tags and get_tagvals_in(tags):
-            e = "=" + e[len(tags[-1] + "="):].split("=")[0]
-            if e == prev:
-                continue
-            yield e
-            prev = e
-
-        for e, in get_tags_in(tags):
-            e = "#" + e.split("=")[0]
-            if e == prev:
-                continue
-            yield e
-            prev = e
-
-        for e, in get_files_in(tags):
-            yield e.replace("/", ":")
+        for t in proc_tags(
+            t[len(tags[-1] + "="):]
+            for t, in tags and get_tagvals_in(tags)):
+            yield "=" + t
+        for t in proc_tags(t for t, in get_tags_in(tags)):
+            yield "#" + t
+        for f, in get_files_in(tags):
+            yield f.replace("/", ":")
 
     def readlink(self, path):
         path_s = path[1:].split("/")
