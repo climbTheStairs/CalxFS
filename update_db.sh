@@ -23,10 +23,6 @@ function get_exts(f, exts,   nfiles, cmd, ext) {
 	close(cmd)
 	return nfiles+0
 }
-index(path_s[split(FILENAME, path_s, "/")], "#") == 1 {
-	print "fname " FILENAME " illegal, cannot start with char '\'#\''" | "cat >&2"
-	exit 1
-}
 index(FILENAME, ":") {
 	print "fname " FILENAME " contains illegal char '\':\''" | "cat >&2"
 	exit 1
@@ -46,7 +42,7 @@ FNR == 1 {
 }'
 (
 	cd &&
-	find -H -- ? ?.* dl tp doc -type f -name \*.calx \
+	find -H -- [!#=] [!#=].* dl tp doc -type f -name \*.calx \
 		-exec awk -vOFS="$HT" -- "$calx2tsv" {} + &&
 	awk -vOFS="$HT" -- "$calx2tsv" src/*.calx src/[A-Z_]*/*.calx
 ) | sqlite3 -tabs db.sqlite \
