@@ -4,22 +4,24 @@ readonly calx2tsv='function esc_sh(s) {
 	gsub("'\''", "'\'\\\\\'\''", s) # have fun parsing this
 	return "'\''" s "'\''"
 }
-function get_exts(fname_root, exts,   nfiles, cmd, f) {
+function get_exts(f, exts,   nfiles, cmd, ext) {
 	split("", exts)
-	cmd="ls -dp -- 2> /dev/null " \
-		esc_sh(fname_root) ".* " \
-		esc_sh(fname_root)
-	while ((cmd | getline f) > 0)
-		if (f !~ /[.]calx$/)
-			exts[get_ext(f)]=nfiles++
+	f=esc_sh(f); f=f ".* " f
+	cmd="find -H -- 2> /dev/null " f " \\! -name \\*.calx -prune \\( " \
+		"-type d -exec echo _d \\; -o " \
+		"-type f -name \\*.\\* -print -o " \
+		"-type f -exec echo _n \\; -o " \
+		"-type l -exec echo _l \\; -o " \
+		"-exec echo _s \\; \\) | " \
+		"sed \"s,.*/,,; s,.*[.],,\""
+	while ((cmd | getline ext) > 0)
+		exts[ext]=nfiles++
+	close(cmd)
+	cmd="find -- 2> /dev/null " f " -prune -type l"
+	if ((cmd | getline ext) > 0)
+		exts["_l"]=1
 	close(cmd)
 	return nfiles+0
-}
-function get_ext(fname,   a) {
-	sub("/$",		"._d",		fname)
-	sub(".*/",		"",			fname)
-	sub("^[^.]*$",	"_none",	fname)
-	return a[split(fname, a, ".")]
 }
 index(FILENAME, "#") == 1 {
 	print "fname " FILENAME " illegal, cannot start with char '\'#\''" | "cat >&2"
@@ -44,7 +46,7 @@ FNR == 1 {
 }'
 (
 	cd &&
-	find -H -- ? ?.* dl tp doc -name \*.calx \
+	find -H -- ? ?.* dl tp doc -type f -name \*.calx \
 		-exec awk -vOFS="$HT" -- "$calx2tsv" {} + &&
 	awk -vOFS="$HT" -- "$calx2tsv" src/*.calx src/[A-Z_]*/*.calx
 ) | sqlite3 -tabs db.sqlite \

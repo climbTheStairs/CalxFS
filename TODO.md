@@ -1,4 +1,4 @@
-- what should `$ext=` be for symlink?
+- `$ext=_ln`
 - ls/lf root v slow
 - implement impl in update_db.sh ins o py?
 - hide implied chitag
