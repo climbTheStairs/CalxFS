@@ -1,6 +1,11 @@
 #!/bin/sh
 readonly HT=$(printf \\t)
-readonly calx2tsv='function esc_sh(s) {
+readonly calx2tsv='BEGIN {
+	FNAME_ILLEGAL[":"]=1
+	FNAME_ILLEGAL["\t"]="\\t"
+	FNAME_ILLEGAL["\n"]="\\n"
+}
+function esc_sh(s) {
 	gsub("'\''", "'\'\\\\\'\''", s) # have fun parsing this
 	return "'\''" s "'\''"
 }
@@ -23,15 +28,17 @@ function get_exts(f, exts,   nfiles, cmd, ext) {
 	close(cmd)
 	return nfiles+0
 }
-index(FILENAME, ":") {
-	print "fname " FILENAME " contains illegal char '\':\''" | "cat >&2"
-	exit 1
-}
-index(FILENAME, "\n") {
-	print "fname " FILENAME " contains illegal char '\'\\\\n\''" | "cat >&2"
+index($0, "\t") {
+	print FILENAME " has illegal tag, contains illegal char '\'\\\\t\''" | "cat >&2"
 	exit 1
 }
 FNR == 1 {
+	for (c in FNAME_ILLEGAL) {
+		if (index(FILENAME, c)) {
+			print "fname "FILENAME" contains illegal char '\''"FNAME_ILLEGAL[c]"'\''" | "cat >&2"
+			exit 1
+		}
+	}
 	fname_root=substr(FILENAME, 1, length(FILENAME)-length(".calx"))
 	print fname_root, "$nfiles=" get_exts(fname_root, exts)
 	for (ext in exts)
@@ -45,11 +52,8 @@ FNR == 1 {
 	find -H -- [!#=] [!#=].* dl tp doc -type f -name \*.calx \
 		-exec awk -vOFS="$HT" -- "$calx2tsv" {} + &&
 	awk -vOFS="$HT" -- "$calx2tsv" src/*.calx src/[A-Z_]*/*.calx
-) | sqlite3 -tabs db.sqlite \
-	"BEGIN;" \
-	"DELETE FROM file_tag;" \
-	".import '| cat -' file_tag" \
-	"DELETE FROM impl;" \
-	".import impl.tsv impl" \
-	"COMMIT;"
+) | sqlite3 db.sqlite \
+	'.mode ascii --rowsep "\n" --colsep "\t"' \
+	BEGIN 'DELETE FROM file_tag;' ".import '| cat -' file_tag" COMMIT \
+	BEGIN 'DELETE FROM impl;' '.import impl.tsv impl' COMMIT
 

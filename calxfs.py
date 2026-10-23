@@ -14,6 +14,7 @@ DEFAULT_ATTR = {
 def main():
     global conn
     conn = sqlite3.connect("db.sqlite")
+    conn.execute("PRAGMA case_sensitive_like=ON")
     fg = (sys.argv[1] != "bg") if len(sys.argv) > 1 else True
     fuse.FUSE(CalxFS(), DIR_MOUNTPOINT, foreground=fg, nothreads=True)
     conn.close()
@@ -40,14 +41,16 @@ def path2tags(path_s):
         if t.startswith("#"):
             tags.append(t[1:])
         elif t.startswith("="):
+            if not tags:
+                raise fuse.FuseOSError(errno.ENOENT)
             tags[-1] += t
     return tags
 
 def get_symlink_names(fname):
-    path_dest = DIR_BASE + fname.replace(":", "/")
+    p = glob.escape(DIR_BASE + fname.replace(":", "/"))
     return [
         path[len(DIR_BASE):].replace("/", ":")
-        for path in glob.glob(glob.escape(path_dest) + "*")
+        for path in glob.glob(p) + glob.glob(p + ".*")
         if not path.endswith(".calx") or fname.endswith(".calx")
     ] or [fname] # give them a broken symlink
 
@@ -83,8 +86,16 @@ class CalxFS(fuse.Operations):
         tags = path2tags(path_s)
         f = DIR_BASE + basename.replace(":", "/")
 
-        is_tag_dir = path == "/" or basename[0] in "#="
+        if path == "/":
+            return attr_d()
+
+        is_tag_dir = basename[0] in "#="
+        is_in_virtdir = len(path_s) > 1 and path_s[-2][0] not in "#="
+
         if is_tag_dir:
+            if is_in_virtdir:
+                print(f"ENOENT: virtdir cannot contain tags", file=sys.stderr)
+                raise fuse.FuseOSError(errno.ENOENT)
             tag_exists = get_files_in(tags).fetchone() or get_tagvals_in(tags).fetchone()
             if not tag_exists:
                 print(f"ENOENT: tags {tags} is empty", file=sys.stderr)
@@ -95,7 +106,6 @@ class CalxFS(fuse.Operations):
         if basename.endswith(".calx"):
             return attr_l(len(f.encode()))
 
-        is_in_virtdir = len(path_s) > 1 and path_s[-2][0] not in "#="
         if is_in_virtdir:
             virtdir_in_tags = get_files_in(tags,
                 filt="ft.f = ?",
@@ -103,15 +113,15 @@ class CalxFS(fuse.Operations):
             if not virtdir_in_tags:
                 print(f"ENOENT: virtdir {path_s[-2]=} !in tags", file=sys.stderr)
                 raise fuse.FuseOSError(errno.ENOENT)
-            if not os.path.exists(f):
+            if not os.path.lexists(f):
                 print(f"ENOENT: !E {f=}", file=sys.stderr)
                 raise fuse.FuseOSError(errno.ENOENT)
             return attr_l(len(f.encode()))
 
-        file_in_tags = get_files_in(tags,
+        file_is_in_tags = get_files_in(tags,
             filt="ft.f = ?",
             args=[basename.replace(":", "/")]).fetchone()
-        if not file_in_tags:
+        if not file_is_in_tags:
             print(f"ENOENT: file {basename=} !in tags", file=sys.stderr)
             raise fuse.FuseOSError(errno.ENOENT)
 
