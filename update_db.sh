@@ -50,8 +50,10 @@ FNR == 1 {
 		-exec awk -vOFS="$HT" -- "$calx2tsv" {} + &&
 	awk -vOFS="$HT" -- "$calx2tsv" src/*.calx src/[A-Z_]*/*.calx
 ) | sqlite3 -tabs db.sqlite \
+	"BEGIN;" \
 	"DELETE FROM file_tag;" \
 	".import '| cat -' file_tag" \
 	"DELETE FROM impl;" \
-	".import impl.tsv impl"
+	".import impl.tsv impl" \
+	"COMMIT;"
 
