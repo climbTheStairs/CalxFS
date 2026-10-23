@@ -23,7 +23,7 @@ function get_exts(f, exts,   nfiles, cmd, ext) {
 	close(cmd)
 	return nfiles+0
 }
-index(FILENAME, "#") == 1 {
+index(path_s[split(FILENAME, path_s, "/")], "#") == 1 {
 	print "fname " FILENAME " illegal, cannot start with char '\'#\''" | "cat >&2"
 	exit 1
 }
@@ -32,7 +32,7 @@ index(FILENAME, ":") {
 	exit 1
 }
 index(FILENAME, "\n") {
-	print "fname " FILENAME " contains illegal char '\'\\n\''" | "cat >&2"
+	print "fname " FILENAME " contains illegal char '\'\\\\n\''" | "cat >&2"
 	exit 1
 }
 FNR == 1 {
