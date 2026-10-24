@@ -47,11 +47,26 @@ FNR == 1 {
 {
 	print fname_root, $0
 }'
+readonly calxdir2tsv='index($0, "\t") {
+	print FILENAME " has illegal tag, contains illegal char '\'\\\\t\''" | "cat >&2"
+	exit 1
+}
+{
+	for (i=2; i<ARGC; i++)
+		print substr(ARGV[i], 1, length(ARGV[i])-length(".calx")), $0
+}
+FILENAME != ARGV[1] {exit}'
+readonly calxdirs2tsv='for f do
+	find -- "${f%.calx}" -type f -name "?*.calx" \
+		-exec awk -vOFS="$(printf \\t)" -- "$0" "$f" {""} +
+done'
 (
 	cd &&
-	find -H -- [!#=] [!#=].* dl tp doc -type f -name \*.calx \
+	find -H -- [!#=] [!#=].* dl tp doc -type f -name '?*.calx' \
 		-exec awk -vOFS="$HT" -- "$calx2tsv" {} + &&
-	awk -vOFS="$HT" -- "$calx2tsv" src/*.calx src/[A-Z_]*/*.calx
+	awk -vOFS="$HT" -- "$calx2tsv" src/?*.calx src/[A-Z_]*/?*.calx &&
+	find -H -- [!#=] [!#=].* dl tp doc src -type f -name .calx \
+		-exec sh -c "$calxdirs2tsv" "$calxdir2tsv" {} +
 ) | sqlite3 db.sqlite \
 	'.mode ascii --rowsep "\n" --colsep "\t"' \
 	BEGIN 'DELETE FROM file_tag;' ".import '| cat -' file_tag" COMMIT \
