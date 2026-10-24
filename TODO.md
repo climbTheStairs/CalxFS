@@ -1,3 +1,5 @@
+- repl sqlite db w text file?
+- auto tag shebang
 - ls/lf v slow
 - impl:
 	- implement in update_db.sh ins o py?

@@ -1,7 +1,7 @@
 #!/bin/sh
 readonly HT=$(printf \\t)
 readonly calx2tsv='BEGIN {
-	FNAME_ILLEGAL[":"]=1
+	FNAME_ILLEGAL[":"]=":"
 	FNAME_ILLEGAL["\t"]="\\t"
 	FNAME_ILLEGAL["\n"]="\\n"
 }

@@ -129,7 +129,7 @@ class CalxFS(fuse.Operations):
                 filt="ft.f = ?",
                 args=[path_s[-2].replace(":", "/")]).fetchone()
             if not virtdir_in_tags:
-                print(f"ENOENT: virtdir {path_s[-2]=} !in tags", file=sys.stderr)
+                print(f"ENOENT: virtdir {path_s[-2]=} !in tags {tags}", file=sys.stderr)
                 raise fuse.FuseOSError(errno.ENOENT)
             if not os.path.lexists(f):
                 print(f"ENOENT: !E {f=}", file=sys.stderr)
@@ -140,7 +140,7 @@ class CalxFS(fuse.Operations):
             filt="ft.f = ?",
             args=[basename.replace(":", "/")]).fetchone()
         if not file_is_in_tags:
-            print(f"ENOENT: file {basename=} !in tags", file=sys.stderr)
+            print(f"ENOENT: file {basename} !in tags {tags}", file=sys.stderr)
             raise fuse.FuseOSError(errno.ENOENT)
 
         symlink_names = get_symlink_names(basename)
