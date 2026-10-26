@@ -177,12 +177,7 @@ class CalxFS(fuse.Operations):
                 raise fuse.FuseOSError(errno.ENOENT)
             return attr_l(targ)
 
-        is_tag_dir = bname[0] in "#!="
-        if is_tag_dir:
-            tag_exists = get_files_in(tags).fetchone() or get_tagvals_in(tags).fetchone()
-            if not tag_exists:
-                print(f"ENOENT: tags {tags} is empty", file=sys.stderr)
-                raise fuse.FuseOSError(errno.ENOENT)
+        if bname[0] in "#!=":
             return ATTR_D
 
         # secret hidden symlink to conveniently edit .calx files
