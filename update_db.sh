@@ -67,8 +67,10 @@ done'
 	awk -vOFS="$HT" -- "$calx2tsv" src/?*.calx src/[A-Z_]*/?*.calx &&
 	find -H -- [!#=] [!#=].* dl tp doc src -type f -name .calx \
 		-exec sh -c "$calxdirs2tsv" "$calxdir2tsv" {} +
-) | sqlite3 db.sqlite \
+) | sort > dat/db.tsv &&
+./gen_db.awk < dat/db.tsv > dat/db2.tsv &&
+sqlite3 dat/db.sqlite \
 	'.mode ascii --rowsep "\n" --colsep "\t"' \
-	BEGIN 'DELETE FROM file_tag;' ".import '| cat -' file_tag" COMMIT \
-	BEGIN 'DELETE FROM impl;' '.import impl.tsv impl' COMMIT
+	BEGIN 'DELETE FROM file_tag;' '.import dat/db.tsv file_tag' COMMIT \
+	BEGIN 'DELETE FROM impl;' '.import dat/impl.tsv impl' COMMIT
 

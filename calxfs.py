@@ -12,12 +12,16 @@ DEFAULT_ATTR = {
 }
 
 def main():
+    """
     global conn
-    conn = sqlite3.connect("db.sqlite")
+    conn = sqlite3.connect("dat/db.sqlite")
     conn.execute("PRAGMA case_sensitive_like=ON")
+    """
     fg = (sys.argv[1] != "bg") if len(sys.argv) > 1 else True
     fuse.FUSE(CalxFS(), DIR_MOUNTPOINT, foreground=fg, nothreads=True)
+    """
     conn.close()
+    """
 
 PAT_WILDCARDS = re.compile(r"([%_\\])")
 def esc_sql_like(s):
@@ -46,6 +50,44 @@ def path2tags(path_s):
             tags[-1] += t
     return tags
 
+def esc_regex(s):
+    return s.replace("$", r"\$")
+
+def _query_db2(partags, ty="f", tagkey=None):
+    partags = sorted(partags)
+    r = [[esc_regex(t) for t in partags]]
+    if tagkey:
+        tagkey_r = esc_regex(tagkey) + r"[^,]*"
+        r += [
+            r[0][:i+1] + [tagkey_r] + r[0][i+1:]
+            for i, t in enumerate(partags)
+            if t.startswith(tagkey)
+        ]
+        i = sorted(partags + [tagkey]).index(tagkey)
+        r[0].insert(i, tagkey_r)
+    r = re.compile("|".join(".*".join(f",{t}," for t in x) for x in r))
+    with open("dat/db2.tsv") as f:
+        for ln in f:
+            f, tags = ln[:-1].split("\t")
+            if not r.search(tags):
+                continue
+            if ty == "f":
+                yield f
+            elif ty == "t":
+                tags = tags[1:-1].split(",,")
+                for t in set(tags) - set(partags):
+                    yield t
+
+class _F:
+    def __init__(self, a):
+        self.a = iter(sorted(set(a)))
+    def __iter__(self):
+        return self
+    def __next__(self):
+        return (next(self.a),)
+    def fetchone(self):
+        return next(self, None)
+
 def get_symlink_names(fname):
     p = glob.escape(DIR_BASE + fname.replace(":", "/"))
     return [
@@ -55,26 +97,37 @@ def get_symlink_names(fname):
     ] or [fname] # give them a broken symlink
 
 def get_files_in(partags, filt="1", args=[]):
+    filt = filt == "ft.f = ?"
+    return _F(f for f in _query_db2(partags) if not filt or f == args[0])
+"""
     q = "SELECT DISTINCT ft.f FROM file_tag_w_impl ft\n"
     for i in range(len(partags)):
         q += f"JOIN file_tag_w_impl ft{i} ON ft.f = ft{i}.f AND ft{i}.t = ?\n"
     q += f"WHERE {filt}\n"
     q += "ORDER BY ft.f\n"
     return conn.cursor().execute(q, partags + args)
+"""
 
 def get_tags_in(partags, filt="1", args=[]):
+    return _F(_query_db2(partags, "t"))
+"""
     q = "SELECT DISTINCT ft.t FROM file_tag_w_impl ft\n"
     for i in range(len(partags)):
         q += f"JOIN file_tag_w_impl ft{i} ON ft.f = ft{i}.f AND ft{i}.t = ? AND ft.t != ft{i}.t\n"
     q += f"WHERE ft.t NOT LIKE '.%' AND {filt}\n"
     q += "ORDER BY ft.t || '<'\n" # appending '<' sorts "a" imm before "a="
     return conn.cursor().execute(q, partags + args)
+"""
 
 def get_tagvals_in(tags):
     *partags, tagkey = tags
+    tagkey += "="
+    return _F(t for t in _query_db2(partags, "t", tagkey) if t.startswith(tagkey))
+"""
     return get_tags_in(partags,
         filt="ft.t LIKE ? ESCAPE '\\'",
         args=[esc_sql_like(tagkey) + "=%"])
+"""
 
 def same_prefix_len(a, b):
     return ([x == y for x, y in zip(a, b)] + [False]).index(False)
