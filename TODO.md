@@ -1,13 +1,14 @@
-- repl sqlite db w text file?
-- auto tag shebang
-- ls/lf v slow
+- auto tag:
+	- w exts e.g. `.xz` removed
+	- shebang
+- ls/lf slow
 - impl:
-	- implement in update_db.sh ins o py?
+	- implement in update_db.sh ins o py
 	- hide implied chitag
 - ls files in any tagval of `#a` at `#a=*`
 - ls negation of a tag; ls untagged
 - view tags o file, incl hidden
-- get lf t hide .calx & keep tgt
+	- lf
 - wr (don't forget conn.commit() af write db):
 	- rename tag dir to rename tag (entire tag or only o files matching partags?)
 	- rename file wi dir t rename file

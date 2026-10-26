@@ -3,12 +3,16 @@ import errno, glob, os, re, sqlite3, stat, sys
 import mfusepy as fuse
 
 DIR_MOUNTPOINT = "/mnt/calxfs"
-DIR_BASE = os.path.expanduser("~").split("/")
-DEFAULT_ATTR = {
+DIR_BASE = os.path.expanduser("~")
+ATTR_DEFAULT = {
     "st_nlink": 1,
     "st_size": 0,
     "st_uid": os.getuid(),
     "st_gid": os.getgid(),
+}
+ATTR_D = ATTR_DEFAULT | {
+    "st_mode": stat.S_IFDIR | 0o755,
+    "st_nlink": 2,
 }
 
 def main():
@@ -27,14 +31,8 @@ PAT_WILDCARDS = re.compile(r"([%_\\])")
 def esc_sql_like(s):
     return PAT_WILDCARDS.sub(r"\\\1", s)
 
-def attr_d():
-    return DEFAULT_ATTR | {
-        "st_mode": stat.S_IFDIR | 0o755,
-        "st_nlink": 2,
-    }
-
 def attr_l(targ):
-    return DEFAULT_ATTR | {
+    return ATTR_DEFAULT | {
         "st_mode": stat.S_IFLNK | 0o777,
         "st_size": len(targ.encode()),
     }
@@ -59,20 +57,18 @@ def _query_db2(partags, ty="f", tagkey=None):
         tagkey = re.compile("," + esc_regex(tagkey) + r"[^,]*,")
     with open("dat/db2.tsv") as f:
         for ln in f:
-            f, tags = ln[:-1].split("\t")
+            f, tt = ln[:-1].split("\t")
             n = 1
             for t in partags:
-                tags, n = t.subn("", tags)
+                tt, n = t.subn("", tt)
                 if n == 0:
                     break
-            if n == 0 or tagkey and not tagkey.search(tags):
+            if n == 0 or tagkey and not tagkey.search(tt):
                 continue
             if ty == "f":
                 yield f
             elif ty == "t":
-                tags = tags[1:-1].split(",,")
-                for t in tags:
-                    yield t
+                yield from tt[1:-1].split(",,")
 
 class _F:
     def __init__(self, a):
@@ -84,8 +80,14 @@ class _F:
     def fetchone(self):
         return next(self, None)
 
+def real_path(fname, virtdir=None):
+    fname = fname.split(":")
+    if virtdir:
+        fname = virtdir.split(":")[:-1] + fname
+    return DIR_BASE + "/" + "/".join(fname)
+
 def get_symlink_targs(fname):
-    targ = "/".join(DIR_BASE + fname.split(":"))
+    targ = real_path(fname)
     paths = glob.glob(glob.escape(targ)) + glob.glob(glob.escape(targ) + ".*")
     return [
         p for p in paths if not p.endswith(".calx")
@@ -147,62 +149,62 @@ class CalxFS(fuse.Operations):
         self.use_ns = True # make warning go away
 
     def getattr(self, path, fh=None):
-        path_s = path[1:].split("/")
-        basename = path_s[-1]
-        tags = path2tags(path_s)
+        dname = path[1:].split("/")
+        tags = path2tags(dname)
+        bname = dname.pop()
 
         if path == "/":
-            return attr_d()
+            return ATTR_D
 
-        is_in_virtdir = len(path_s) > 1 and path_s[-2][0] not in "#="
+        is_in_virtdir = dname and dname[-1][0] not in "#="
         if is_in_virtdir:
             virtdir_in_tags = get_files_in(tags,
                 filt="ft.f = ?",
-                args=[path_s[-2].replace(":", "/")]).fetchone()
+                args=[dname[-1].replace(":", "/")]).fetchone()
             if not virtdir_in_tags:
-                print(f"ENOENT: virtdir {path_s[-2]=} !in tags {tags}", file=sys.stderr)
+                print(f"ENOENT: virtdir {dname[-1]} !in tags {tags}", file=sys.stderr)
                 raise fuse.FuseOSError(errno.ENOENT)
-            targ = "/".join(DIR_BASE + path_s[-2].split(":")[:-1] + [basename])
+            targ = real_path(bname, dname[-1])
             if not os.path.lexists(targ):
                 print(f"ENOENT: !E {targ=}", file=sys.stderr)
                 raise fuse.FuseOSError(errno.ENOENT)
             return attr_l(targ)
 
-        is_tag_dir = basename[0] in "#="
+        is_tag_dir = bname[0] in "#="
         if is_tag_dir:
             tag_exists = get_files_in(tags).fetchone() or get_tagvals_in(tags).fetchone()
             if not tag_exists:
                 print(f"ENOENT: tags {tags} is empty", file=sys.stderr)
                 raise fuse.FuseOSError(errno.ENOENT)
-            return attr_d()
+            return ATTR_D
 
         # secret hidden symlink to conveniently edit .calx files
-        if basename.endswith(".calx"):
-            return attr_l("/".join(DIR_BASE + basename.split(":")))
+        if bname.endswith(".calx"):
+            return attr_l(real_path(bname))
 
         file_is_in_tags = get_files_in(tags,
             filt="ft.f = ?",
-            args=[basename.replace(":", "/")]).fetchone()
+            args=[bname.replace(":", "/")]).fetchone()
         if not file_is_in_tags:
-            print(f"ENOENT: file {basename} !in tags {tags}", file=sys.stderr)
+            print(f"ENOENT: file {bname} !in tags {tags}", file=sys.stderr)
             raise fuse.FuseOSError(errno.ENOENT)
 
-        symlink_targs = get_symlink_targs(basename)
+        symlink_targs = get_symlink_targs(bname)
         if len(symlink_targs) > 1:
-            return attr_d() # this is a virtdir
+            return ATTR_D # this is a virtdir
         return attr_l(symlink_targs[0])
 
     def readdir(self, path, _fh):
-        path_s = path[1:].split("/")
-        basename = path_s[-1]
-        tags = path2tags(path_s)
+        dname = path[1:].split("/")
+        tags = path2tags(dname)
+        bname = dname.pop()
 
         yield "."
         yield ".."
 
-        is_virtdir = basename and basename[0] not in "#="
+        is_virtdir = bname and bname[0] not in "#="
         if is_virtdir:
-            for f in get_symlink_targs(basename):
+            for f in get_symlink_targs(bname):
                 yield f.split("/")[-1]
             return
 
@@ -216,12 +218,12 @@ class CalxFS(fuse.Operations):
             yield f.replace("/", ":")
 
     def readlink(self, path):
-        path_s = path[1:].split("/")
-        basename = path_s[-1]
-        is_in_virtdir = len(path_s) > 1 and path_s[-2][0] not in "#="
+        dname = path[1:].split("/")
+        bname = dname.pop()
+        is_in_virtdir = dname and dname[-1][0] not in "#="
         if is_in_virtdir:
-            return "/".join(DIR_BASE + path_s[-2].split(":")[:-1] + [basename])
-        return get_symlink_targs(basename)[0]
+            return real_path(bname, dname[-1])
+        return get_symlink_targs(bname)[0]
 
 if __name__ == "__main__":
     main()
