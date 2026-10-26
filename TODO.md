@@ -6,7 +6,7 @@
 	- implement in update_db.sh ins o py
 	- hide implied chitag
 - ls files in any tagval of `#a` at `#a=*`
-- ls negation of a tag; ls untagged
+- ls untagged
 - view tags o file, incl hidden
 	- lf
 - wr (don't forget conn.commit() af write db):

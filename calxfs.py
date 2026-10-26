@@ -38,32 +38,38 @@ def attr_l(targ):
     }
 
 def path2tags(path_s):
-    tags = []
+    pos, neg = [], []
     for t in path_s:
         if t.startswith("#"):
-            tags.append(t[1:])
+            pos.append(t[1:])
+        elif t.startswith("!"):
+            neg.append(t[1:])
         elif t.startswith("="):
-            if not tags:
+            if not pos:
                 raise fuse.FuseOSError(errno.ENOENT)
-            tags[-1] += t
-    return tags
+            pos[-1] += t
+    return pos, neg
 
 def esc_regex(s):
     return s.replace("$", r"\$")
 
 def _query_db2(partags, ty="f", tagkey=None):
-    partags = [re.compile("," + esc_regex(t) + ",") for t in sorted(partags)]
+    pos, neg = partags
+    pos = [re.compile("," + esc_regex(t) + ",") for t in sorted(pos)]
+    neg = re.compile("|".join("," + esc_regex(t) + "," for t in sorted(neg)))
     if tagkey:
         tagkey = re.compile("," + esc_regex(tagkey) + r"[^,]*,")
     with open("dat/db2.tsv") as f:
         for ln in f:
             f, tt = ln[:-1].split("\t")
             n = 1
-            for t in partags:
+            for t in pos:
                 tt, n = t.subn("", tt)
                 if n == 0:
                     break
             if n == 0 or tagkey and not tagkey.search(tt):
+                continue
+            if neg.pattern and neg.search(tt):
                 continue
             if ty == "f":
                 yield f
@@ -117,7 +123,8 @@ def get_tags_in(partags, filt="1", args=[]):
 """
 
 def get_tagvals_in(tags):
-    *partags, tagkey = tags
+    (*pos, tagkey), neg = tags
+    partags = (pos, neg)
     tagkey += "="
     return _F(t for t in _query_db2(partags, "t", tagkey) if t.startswith(tagkey))
 """
@@ -156,7 +163,7 @@ class CalxFS(fuse.Operations):
         if path == "/":
             return ATTR_D
 
-        is_in_virtdir = dname and dname[-1][0] not in "#="
+        is_in_virtdir = dname and dname[-1][0] not in "#!="
         if is_in_virtdir:
             virtdir_in_tags = get_files_in(tags,
                 filt="ft.f = ?",
@@ -170,7 +177,7 @@ class CalxFS(fuse.Operations):
                 raise fuse.FuseOSError(errno.ENOENT)
             return attr_l(targ)
 
-        is_tag_dir = bname[0] in "#="
+        is_tag_dir = bname[0] in "#!="
         if is_tag_dir:
             tag_exists = get_files_in(tags).fetchone() or get_tagvals_in(tags).fetchone()
             if not tag_exists:
@@ -202,15 +209,15 @@ class CalxFS(fuse.Operations):
         yield "."
         yield ".."
 
-        is_virtdir = bname and bname[0] not in "#="
+        is_virtdir = bname and bname[0] not in "#!="
         if is_virtdir:
             for f in get_symlink_targs(bname):
                 yield f.split("/")[-1]
             return
 
         for t in proc_tags(
-            t[len(tags[-1] + "="):]
-            for t, in tags and get_tagvals_in(tags)):
+            t[len(tags[0][-1] + "="):]
+            for t, in tags[0] and get_tagvals_in(tags)):
             yield "=" + t
         for t in proc_tags(t for t, in get_tags_in(tags)):
             yield "#" + t
@@ -220,7 +227,7 @@ class CalxFS(fuse.Operations):
     def readlink(self, path):
         dname = path[1:].split("/")
         bname = dname.pop()
-        is_in_virtdir = dname and dname[-1][0] not in "#="
+        is_in_virtdir = dname and dname[-1][0] not in "#!="
         if is_in_virtdir:
             return real_path(bname, dname[-1])
         return get_symlink_targs(bname)[0]
