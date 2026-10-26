@@ -2,8 +2,8 @@
 import errno, glob, os, re, sqlite3, stat, sys
 import mfusepy as fuse
 
-DIR_MOUNTPOINT = "/mnt/calxfs/"
-DIR_BASE = os.path.expanduser("~") + "/"
+DIR_MOUNTPOINT = "/mnt/calxfs"
+DIR_BASE = os.path.expanduser("~").split("/")
 DEFAULT_ATTR = {
     "st_nlink": 1,
     "st_size": 0,
@@ -33,10 +33,10 @@ def attr_d():
         "st_nlink": 2,
     }
 
-def attr_l(sz):
+def attr_l(targ):
     return DEFAULT_ATTR | {
         "st_mode": stat.S_IFLNK | 0o777,
-        "st_size": sz,
+        "st_size": len(targ.encode()),
     }
 
 def path2tags(path_s):
@@ -84,13 +84,12 @@ class _F:
     def fetchone(self):
         return next(self, None)
 
-def get_symlink_names(fname):
-    p = glob.escape(DIR_BASE + fname.replace(":", "/"))
+def get_symlink_targs(fname):
+    targ = "/".join(DIR_BASE + fname.split(":"))
+    paths = glob.glob(glob.escape(targ)) + glob.glob(glob.escape(targ) + ".*")
     return [
-        path[len(DIR_BASE):].replace("/", ":")
-        for path in glob.glob(p) + glob.glob(p + ".*")
-        if not path.endswith(".calx") or fname.endswith(".calx")
-    ] or [fname] # give them a broken symlink
+        p for p in paths if not p.endswith(".calx")
+    ] or [targ] # broken symlink or *.calx
 
 def get_files_in(partags, filt="1", args=[]):
     filt = filt == "ft.f = ?"
@@ -151,18 +150,26 @@ class CalxFS(fuse.Operations):
         path_s = path[1:].split("/")
         basename = path_s[-1]
         tags = path2tags(path_s)
-        f = DIR_BASE + basename.replace(":", "/")
 
         if path == "/":
             return attr_d()
 
-        is_tag_dir = basename[0] in "#="
         is_in_virtdir = len(path_s) > 1 and path_s[-2][0] not in "#="
-
-        if is_tag_dir:
-            if is_in_virtdir:
-                print(f"ENOENT: virtdir cannot contain tags", file=sys.stderr)
+        if is_in_virtdir:
+            virtdir_in_tags = get_files_in(tags,
+                filt="ft.f = ?",
+                args=[path_s[-2].replace(":", "/")]).fetchone()
+            if not virtdir_in_tags:
+                print(f"ENOENT: virtdir {path_s[-2]=} !in tags {tags}", file=sys.stderr)
                 raise fuse.FuseOSError(errno.ENOENT)
+            targ = "/".join(DIR_BASE + path_s[-2].split(":")[:-1] + [basename])
+            if not os.path.lexists(targ):
+                print(f"ENOENT: !E {targ=}", file=sys.stderr)
+                raise fuse.FuseOSError(errno.ENOENT)
+            return attr_l(targ)
+
+        is_tag_dir = basename[0] in "#="
+        if is_tag_dir:
             tag_exists = get_files_in(tags).fetchone() or get_tagvals_in(tags).fetchone()
             if not tag_exists:
                 print(f"ENOENT: tags {tags} is empty", file=sys.stderr)
@@ -171,19 +178,7 @@ class CalxFS(fuse.Operations):
 
         # secret hidden symlink to conveniently edit .calx files
         if basename.endswith(".calx"):
-            return attr_l(len(f.encode()))
-
-        if is_in_virtdir:
-            virtdir_in_tags = get_files_in(tags,
-                filt="ft.f = ?",
-                args=[path_s[-2].replace(":", "/")]).fetchone()
-            if not virtdir_in_tags:
-                print(f"ENOENT: virtdir {path_s[-2]=} !in tags {tags}", file=sys.stderr)
-                raise fuse.FuseOSError(errno.ENOENT)
-            if not os.path.lexists(f):
-                print(f"ENOENT: !E {f=}", file=sys.stderr)
-                raise fuse.FuseOSError(errno.ENOENT)
-            return attr_l(len(f.encode()))
+            return attr_l("/".join(DIR_BASE + basename.split(":")))
 
         file_is_in_tags = get_files_in(tags,
             filt="ft.f = ?",
@@ -192,10 +187,10 @@ class CalxFS(fuse.Operations):
             print(f"ENOENT: file {basename} !in tags {tags}", file=sys.stderr)
             raise fuse.FuseOSError(errno.ENOENT)
 
-        symlink_names = get_symlink_names(basename)
-        if len(symlink_names) > 1:
+        symlink_targs = get_symlink_targs(basename)
+        if len(symlink_targs) > 1:
             return attr_d() # this is a virtdir
-        return attr_l(len((DIR_BASE + symlink_names[0]).encode()))
+        return attr_l(symlink_targs[0])
 
     def readdir(self, path, _fh):
         path_s = path[1:].split("/")
@@ -207,7 +202,8 @@ class CalxFS(fuse.Operations):
 
         is_virtdir = basename and basename[0] not in "#="
         if is_virtdir:
-            yield from get_symlink_names(basename)
+            for f in get_symlink_targs(basename):
+                yield f.split("/")[-1]
             return
 
         for t in proc_tags(
@@ -222,7 +218,10 @@ class CalxFS(fuse.Operations):
     def readlink(self, path):
         path_s = path[1:].split("/")
         basename = path_s[-1]
-        return DIR_BASE + get_symlink_names(basename)[0].replace(":", "/")
+        is_in_virtdir = len(path_s) > 1 and path_s[-2][0] not in "#="
+        if is_in_virtdir:
+            return "/".join(DIR_BASE + path_s[-2].split(":")[:-1] + [basename])
+        return get_symlink_targs(basename)[0]
 
 if __name__ == "__main__":
     main()
