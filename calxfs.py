@@ -54,28 +54,24 @@ def esc_regex(s):
     return s.replace("$", r"\$")
 
 def _query_db2(partags, ty="f", tagkey=None):
-    partags = sorted(partags)
-    r = [[esc_regex(t) for t in partags]]
+    partags = [re.compile("," + esc_regex(t) + ",") for t in sorted(partags)]
     if tagkey:
-        tagkey_r = esc_regex(tagkey) + r"[^,]*"
-        r += [
-            r[0][:i+1] + [tagkey_r] + r[0][i+1:]
-            for i, t in enumerate(partags)
-            if t.startswith(tagkey)
-        ]
-        i = sorted(partags + [tagkey]).index(tagkey)
-        r[0].insert(i, tagkey_r)
-    r = re.compile("|".join(".*".join(f",{t}," for t in x) for x in r))
+        tagkey = re.compile("," + esc_regex(tagkey) + r"[^,]*,")
     with open("dat/db2.tsv") as f:
         for ln in f:
             f, tags = ln[:-1].split("\t")
-            if not r.search(tags):
+            n = 1
+            for t in partags:
+                tags, n = t.subn("", tags)
+                if n == 0:
+                    break
+            if n == 0 or tagkey and not tagkey.search(tags):
                 continue
             if ty == "f":
                 yield f
             elif ty == "t":
                 tags = tags[1:-1].split(",,")
-                for t in set(tags) - set(partags):
+                for t in tags:
                     yield t
 
 class _F:
