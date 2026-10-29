@@ -143,8 +143,7 @@ def proc_tags(tags):
         return
     for t in tags:
         t = t.split("=")
-        i = same_prefix_len(prev, t)
-        if i:
+        if i := same_prefix_len(prev, t):
             prev = t[:i]
             continue
         yield "=".join(prev)
@@ -191,8 +190,7 @@ class CalxFS(fuse.Operations):
             print(f"ENOENT: file {bname} !in tags {tags}", file=sys.stderr)
             raise fuse.FuseOSError(errno.ENOENT)
 
-        symlink_targs = get_symlink_targs(bname)
-        if len(symlink_targs) > 1:
+        if len(symlink_targs := get_symlink_targs(bname)) > 1:
             return ATTR_D # this is a virtdir
         return attr_l(symlink_targs[0])
 
