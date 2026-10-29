@@ -1,6 +1,8 @@
 #!/bin/env python3
 import errno, glob, os, re, sqlite3, stat, sys
-import mfusepy as fuse
+from typing import Any, Self
+from collections.abc import Iterable, Iterator
+import mfusepy as fuse # type: ignore[import-untyped]
 
 DIR_MOUNTPOINT = "/mnt/calxfs"
 DIR_BASE = os.path.expanduser("~")
@@ -15,7 +17,7 @@ ATTR_D = ATTR_DEFAULT | {
     "st_nlink": 2,
 }
 
-def main():
+def main() -> None:
     """
     global conn
     conn = sqlite3.connect("dat/db.sqlite")
@@ -28,16 +30,16 @@ def main():
     """
 
 PAT_WILDCARDS = re.compile(r"([%_\\])")
-def esc_sql_like(s):
+def esc_sql_like(s: str) -> str:
     return PAT_WILDCARDS.sub(r"\\\1", s)
 
-def attr_l(targ):
+def attr_l(targ: str) -> dict[str, Any]:
     return ATTR_DEFAULT | {
         "st_mode": stat.S_IFLNK | 0o777,
         "st_size": len(targ.encode()),
     }
 
-def path2tags(path_s):
+def path2tags(path_s: list[str]) -> tuple[list[str], list[str]]:
     pos, neg = [], []
     for t in path_s:
         if t.startswith("#"):
@@ -50,26 +52,30 @@ def path2tags(path_s):
             pos[-1] += t
     return pos, neg
 
-def esc_regex(s):
+def esc_regex(s: str) -> str:
+    # TODO
     return s.replace("$", r"\$")
 
-def _query_db2(partags, ty="f", tagkey=None):
-    pos, neg = partags
-    pos = [re.compile("," + esc_regex(t) + ",") for t in sorted(pos)]
-    neg = re.compile("|".join("," + esc_regex(t) + "," for t in sorted(neg)))
-    if tagkey:
-        tagkey = re.compile("," + esc_regex(tagkey) + r"[^,]*,")
-    with open("dat/db2.tsv") as f:
-        for ln in f:
+def _query_db2(
+    pos: list[str],
+    neg: list[str],
+    ty: str = "f",
+    tagkey: str = "",
+) -> Iterator[str]:
+    pos_r = [re.compile("," + esc_regex(t) + ",") for t in sorted(pos)]
+    neg_r = re.compile("|".join("," + esc_regex(t) + "," for t in sorted(neg)))
+    tagkey_r = re.compile("," + esc_regex(tagkey) + r"[^,]*,")
+    with open("dat/db2.tsv") as _f:
+        for ln in _f:
             f, tt = ln[:-1].split("\t")
             n = 1
-            for t in pos:
+            for t in pos_r:
                 tt, n = t.subn("", tt)
                 if n == 0:
                     break
-            if n == 0 or tagkey and not tagkey.search(tt):
+            if n == 0 or (tagkey and not tagkey_r.search(tt)):
                 continue
-            if neg.pattern and neg.search(tt):
+            if neg and neg_r.search(tt):
                 continue
             if ty == "f":
                 yield f
@@ -77,31 +83,34 @@ def _query_db2(partags, ty="f", tagkey=None):
                 yield from tt[1:-1].split(",,")
 
 class _F:
-    def __init__(self, a):
+    def __init__(self, a: Iterable[str]) -> None:
         self.a = iter(sorted(set(a)))
-    def __iter__(self):
+    def __iter__(self) -> Self:
         return self
-    def __next__(self):
+    def __next__(self) -> tuple[str]:
         return (next(self.a),)
-    def fetchone(self):
-        return next(self, None)
 
-def real_path(fname, virtdir=None):
-    fname = fname.split(":")
+def real_path(fname: str, virtdir: str = "") -> str:
+    fname_s = fname.split(":")
     if virtdir:
-        fname = virtdir.split(":")[:-1] + fname
-    return DIR_BASE + "/" + "/".join(fname)
+        fname_s = virtdir.split(":")[:-1] + fname_s
+    return DIR_BASE + "/" + "/".join(fname_s)
 
-def get_symlink_targs(fname):
+def get_symlink_targs(fname: str) -> list[str]:
     targ = real_path(fname)
     paths = glob.glob(glob.escape(targ)) + glob.glob(glob.escape(targ) + ".*")
     return [
         p for p in paths if not p.endswith(".calx")
     ] or [targ] # broken symlink or *.calx
 
-def get_files_in(partags, filt="1", args=[]):
-    filt = filt == "ft.f = ?"
-    return _F(f for f in _query_db2(partags) if not filt or f == args[0])
+def get_files_in(
+    pos: list[str],
+    neg: list[str],
+    filt: str = "1",
+    args: list[str] = [],
+) -> Iterator[tuple[str]]:
+    def file_is(f: str) -> bool: return filt != "ft.f = ?" or f == args[0]
+    return _F(f for f in _query_db2(pos, neg) if file_is(f))
 """
     q = "SELECT DISTINCT ft.f FROM file_tag_w_impl ft\n"
     for i in range(len(partags)):
@@ -111,8 +120,13 @@ def get_files_in(partags, filt="1", args=[]):
     return conn.cursor().execute(q, partags + args)
 """
 
-def get_tags_in(partags, filt="1", args=[]):
-    return _F(_query_db2(partags, "t"))
+def get_tags_in(
+    pos: list[str],
+    neg: list[str],
+    filt: str = "1",
+    args: list[str] = [],
+) -> Iterator[tuple[str]]:
+    return _F(_query_db2(pos, neg, "t"))
 """
     q = "SELECT DISTINCT ft.t FROM file_tag_w_impl ft\n"
     for i in range(len(partags)):
@@ -122,39 +136,38 @@ def get_tags_in(partags, filt="1", args=[]):
     return conn.cursor().execute(q, partags + args)
 """
 
-def get_tagvals_in(tags):
-    (*pos, tagkey), neg = tags
-    partags = (pos, neg)
+def get_tagvals_in(pos: list[str], neg: list[str]) -> Iterator[tuple[str]]:
+    (*pos, tagkey) = pos
     tagkey += "="
-    return _F(t for t in _query_db2(partags, "t", tagkey) if t.startswith(tagkey))
+    return _F(t for t in _query_db2(pos, neg, "t", tagkey) if t.startswith(tagkey))
 """
     return get_tags_in(partags,
         filt="ft.t LIKE ? ESCAPE '\\'",
         args=[esc_sql_like(tagkey) + "=%"])
 """
 
-def same_prefix_len(a, b):
+def len_shared_prefix(a: Iterable[Any], b: Iterable[Any]) -> int:
     return ([x == y for x, y in zip(a, b)] + [False]).index(False)
 
-def proc_tags(tags):
+def proc_tags(tags: Iterator[str]) -> Iterator[str]:
     try:
         prev = next(tags).split("=")
     except StopIteration:
         return
-    for t in tags:
-        t = t.split("=")
-        if i := same_prefix_len(prev, t):
+    for _t in tags:
+        t = _t.split("=")
+        if i := len_shared_prefix(prev, t):
             prev = t[:i]
             continue
         yield "=".join(prev)
         prev = t
     yield "=".join(prev)
 
-class CalxFS(fuse.Operations):
-    def __init__(self):
+class CalxFS(fuse.Operations): # type: ignore[misc]
+    def __init__(self) -> None:
         self.use_ns = True # make warning go away
 
-    def getattr(self, path, fh=None):
+    def getattr(self, path: str, fh: int | Any = None) -> dict[str, Any]:
         dname = path[1:].split("/")
         tags = path2tags(dname)
         bname = dname.pop()
@@ -164,9 +177,9 @@ class CalxFS(fuse.Operations):
 
         is_in_virtdir = dname and dname[-1][0] not in "#!="
         if is_in_virtdir:
-            virtdir_in_tags = get_files_in(tags,
+            virtdir_in_tags = next(get_files_in(*tags,
                 filt="ft.f = ?",
-                args=[dname[-1].replace(":", "/")]).fetchone()
+                args=[dname[-1].replace(":", "/")]), None)
             if not virtdir_in_tags:
                 print(f"ENOENT: virtdir {dname[-1]} !in tags {tags}", file=sys.stderr)
                 raise fuse.FuseOSError(errno.ENOENT)
@@ -183,9 +196,9 @@ class CalxFS(fuse.Operations):
         if bname.endswith(".calx"):
             return attr_l(real_path(bname))
 
-        file_is_in_tags = get_files_in(tags,
+        file_is_in_tags = next(get_files_in(*tags,
             filt="ft.f = ?",
-            args=[bname.replace(":", "/")]).fetchone()
+            args=[bname.replace(":", "/")]), None)
         if not file_is_in_tags:
             print(f"ENOENT: file {bname} !in tags {tags}", file=sys.stderr)
             raise fuse.FuseOSError(errno.ENOENT)
@@ -194,7 +207,7 @@ class CalxFS(fuse.Operations):
             return ATTR_D # this is a virtdir
         return attr_l(symlink_targs[0])
 
-    def readdir(self, path, _fh):
+    def readdir(self, path: str, _fh: int) -> fuse.ReadDirResult:
         dname = path[1:].split("/")
         tags = path2tags(dname)
         bname = dname.pop()
@@ -208,16 +221,17 @@ class CalxFS(fuse.Operations):
                 yield f.split("/")[-1]
             return
 
-        for t in proc_tags(
-            t[len(tags[0][-1] + "="):]
-            for t, in tags[0] and get_tagvals_in(tags)):
-            yield "=" + t
-        for t in proc_tags(t for t, in get_tags_in(tags)):
+        if tags[0]:
+            for t in proc_tags(
+                t[len(tags[0][-1] + "="):]
+                for t, in get_tagvals_in(*tags)):
+                yield "=" + t
+        for t in proc_tags(t for t, in get_tags_in(*tags)):
             yield "#" + t
-        for f, in get_files_in(tags):
+        for f, in get_files_in(*tags):
             yield f.replace("/", ":")
 
-    def readlink(self, path):
+    def readlink(self, path: str) -> str:
         dname = path[1:].split("/")
         bname = dname.pop()
         is_in_virtdir = dname and dname[-1][0] not in "#!="
