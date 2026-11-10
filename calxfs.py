@@ -79,7 +79,7 @@ def _query_db2(
                 continue
             if ty == "f":
                 yield f
-            elif ty == "t":
+            elif ty == "t" and tt:
                 yield from tt[1:-1].split(",,")
 
 class _F:
